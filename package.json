@@ -10,6 +10,7 @@
     "src",
     "install.sh",
     "headless.sh",
+    "benchmark.sh",
     "README.md",
     "LICENSE",
     "NOTICE"
@@ -17,7 +18,7 @@
   "scripts": {
     "typecheck": "tsc --noEmit",
     "test": "node --import tsx --test test/**/*.test.ts",
-    "verify": "bash -n install.sh headless.sh && npm run typecheck && npm test"
+    "verify": "bash -n install.sh headless.sh benchmark.sh && npm run typecheck && npm test"
   },
   "keywords": [
     "opencode",

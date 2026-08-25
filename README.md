@@ -109,6 +109,35 @@ Pass the task as an argument to the bundled headless wrapper:
 
 This invokes the registered `/prewalk` command through OpenCode's API, waits for the session to finish, and prints the final answer. It uses the current directory as the task directory and connects to the normal OpenCode background service. `opencode2 run "/prewalk ..."` is not equivalent: the `run` subcommand sends slash-prefixed text as an ordinary prompt instead of dispatching a registered command.
 
+### Benchmark against a normal run
+
+Run one task twice from the same Git commit in isolated temporary worktrees:
+
+```sh
+~/.local/share/opencode-prewalk/benchmark.sh \
+  "fix the failing auth refresh tests"
+```
+
+The normal baseline uses GPT-5.6 Sol with the `high` variant for the full task. The Prewalk run begins with the same model and variant, then hands the session to GPT-5.6 Luna with the `medium` variant after the todo-gated first edit. Runs are sequential so they do not compete for local resources.
+
+The script writes a Markdown summary, raw JSON, both Git patches, and a self-contained HTML comparison with context-growth lines superimposed over each tool sequence. By default reports go to `.opencode-prewalk/benchmarks/<timestamp>` in the repository being benchmarked. The temporary worktrees are removed after their diffs and session data have been captured.
+
+```sh
+# Choose a report location or benchmark another committed revision.
+benchmark.sh --output /tmp/prewalk-report --revision main "implement the task"
+
+# Keep both worktrees when you want to run your own verification afterward.
+benchmark.sh --keep-worktrees "implement the task"
+```
+
+The source checkout is never modified. If it is dirty, the script warns that both runs use the selected committed revision. Override the baseline only when intentionally testing another comparison:
+
+```sh
+PREWALK_BENCHMARK_MODEL=openai/gpt-5.6-sol \
+PREWALK_BENCHMARK_VARIANT=high \
+benchmark.sh "implement the task"
+```
+
 ## Configuration
 
 Plugin options accept full `provider/model` identifiers and OpenCode model variants:
