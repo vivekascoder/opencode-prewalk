@@ -1,0 +1,11 @@
+opencode-prewalk
+
+This project implements the Prewalk behavior described by Stencil and is
+based in part on ideas and documentation from codex-prewalk:
+https://github.com/vivekascoder/codex-prewalk
+
+codex-prewalk
+Copyright 2026 Vivek
+
+This product also acknowledges pi-prewalk:
+https://github.com/lukeramsden/pi-prewalk
