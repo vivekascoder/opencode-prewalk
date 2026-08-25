@@ -300,6 +300,45 @@ function priceStep(modelID, tokens) {
   ) / 1_000_000
 }
 
+const readCommands = new Set([
+  "awk", "cat", "cd", "comm", "cut", "diff", "egrep", "fgrep", "file", "find", "grep", "head", "jq",
+  "less", "ls", "more", "pwd", "readlink", "realpath", "rg", "rgrep", "ripgrep", "sed", "sort", "stat",
+  "tail", "test", "tree", "uniq", "wc", "which", "yq",
+])
+const readGitCommands = new Set(["describe", "diff", "grep", "log", "ls-files", "rev-parse", "show", "status"])
+
+function shellCommand(input) {
+  if (typeof input?.command === "string") return input.command
+  if (Array.isArray(input?.command)) return input.command.join(" ")
+  return ""
+}
+
+function isReadOnlyShell(command) {
+  if (!command.trim()) return false
+  if (/(^|[^<])>{1,2}|\b(tee|rm|mv|cp|install|mkdir|touch|chmod|chown|truncate|dd)\b|\bsed\s+[^\n;&|]*-[^-\s]*i\b|\bfind\s+[^\n;&|]*(-delete|-exec|-execdir)\b/.test(command)) return false
+
+  const segments = command.replace(/\\\r?\n/g, " ").split(/(?:&&|\|\||[;|\n])/).map(value => value.trim()).filter(Boolean)
+  return segments.length > 0 && segments.every(segment => {
+    const words = segment.replace(/^(?:[A-Za-z_][A-Za-z0-9_]*=(?:"[^"]*"|'[^']*'|\S+)\s+)*/, "").match(/(?:"[^"]*"|'[^']*'|\S+)/g) ?? []
+    if (!words.length) return false
+    let commandIndex = words[0] === "command" || words[0] === "env" ? 1 : 0
+    while (words[commandIndex]?.includes("=")) commandIndex += 1
+    const executable = (words[commandIndex] ?? "").replace(/^.*\//, "")
+    if (executable === "git") {
+      let index = commandIndex + 1
+      while (words[index]?.startsWith("-")) index += ["-C", "-c", "--git-dir", "--work-tree"].includes(words[index]) ? 2 : 1
+      return readGitCommands.has(words[index])
+    }
+    return readCommands.has(executable)
+  })
+}
+
+function classifyTool(rawName, input) {
+  const normalized = String(rawName).toLowerCase().split(/[.:/]/).at(-1)
+  if (["bash", "shell"].includes(normalized) && isReadOnlyShell(shellCommand(input))) return "read"
+  return rawName
+}
+
 function summarize(mode) {
   const directory = path.join(output, mode)
   const info = readJSON(path.join(directory, "session.json"))
@@ -308,14 +347,19 @@ function summarize(mode) {
   const changes = fs.readFileSync(path.join(directory, "changes.txt"), "utf8").split(/\r?\n/).filter(Boolean)
   const assistants = messages.filter(message => message.type === "assistant")
   const steps = assistants.map((message, index) => {
-    const tools = (message.content ?? []).filter(part => part.type === "tool").map(part => ({
-      name: part.name,
-      status: part.state?.status ?? part.state?.type ?? "unknown",
-      createdAt: Number(part.time?.created ?? 0),
-      durationMs: part.time?.completed && (part.time?.ran ?? part.time?.created)
-        ? part.time.completed - (part.time.ran ?? part.time.created)
-        : null,
-    }))
+    const tools = (message.content ?? []).filter(part => part.type === "tool").map(part => {
+      const input = part.state?.input ?? {}
+      return {
+        name: classifyTool(part.name, input),
+        rawName: part.name,
+        command: shellCommand(input) || null,
+        status: part.state?.status ?? part.state?.type ?? "unknown",
+        createdAt: Number(part.time?.created ?? 0),
+        durationMs: part.time?.completed && (part.time?.ran ?? part.time?.created)
+          ? part.time.completed - (part.time.ran ?? part.time.created)
+          : null,
+      }
+    })
     return {
       index: index + 1,
       modelID: message.model?.id ?? "unknown",
@@ -371,6 +415,7 @@ function summarize(mode) {
     tokens: tokenSource,
     models: [...new Set(steps.map(step => step.model))],
     toolCalls: steps.flatMap(step => step.tools.map(tool => tool.name)),
+    rawToolCalls: steps.flatMap(step => step.tools.map(tool => tool.rawName)),
     changedFiles: changes,
     finalAnswer,
     steps,
@@ -458,9 +503,10 @@ function chart(run) {
   let cumulativeInput = 0
   const events = run.steps.flatMap(step => {
     cumulativeInput += Number(step.tokens?.input ?? 0) + Number(step.tokens?.cache?.read ?? 0) + Number(step.tokens?.cache?.write ?? 0)
-    const labels = step.tools.length ? step.tools.map(tool => tool.name) : [step.finish === "stop" ? "response" : step.finish ?? "step"]
-    return labels.map((label, index) => ({
-      label,
+    const markers = step.tools.length ? step.tools : [{ name: step.finish === "stop" ? "response" : step.finish ?? "step" }]
+    return markers.map((tool, index) => ({
+      label: tool.name,
+      detail: tool.command ? `${tool.rawName}: ${tool.command}` : tool.rawName && tool.rawName !== tool.name ? `raw tool: ${tool.rawName}` : "",
       cumulativeInput,
       model: step.model,
       time: step.tools[index]?.createdAt || step.completedAt || step.createdAt || step.index,
@@ -475,7 +521,7 @@ function chart(run) {
   const x = index => left + elapsed[index] * (width - left - right) / maximumElapsed
   const y = value => top + (maximum - value) * (height - top - bottom) / maximum
   const points = events.map((event, index) => `${x(index)},${y(event.cumulativeInput)}`).join(" ")
-  const dots = events.map((event, index) => `<circle cx="${x(index)}" cy="${y(event.cumulativeInput)}" r="4"><title>${esc(event.label)}: ${event.cumulativeInput.toLocaleString()} cumulative input tokens (including cached)\n${esc(event.model)}</title></circle>`).join("")
+  const dots = events.map((event, index) => `<circle cx="${x(index)}" cy="${y(event.cumulativeInput)}" r="4"><title>${esc(event.label)}: ${event.cumulativeInput.toLocaleString()} cumulative input tokens (including cached)\n${esc(event.model)}${event.detail ? `\n${esc(event.detail)}` : ""}</title></circle>`).join("")
   const labels = events.map((event, index) => `<text x="${x(index)}" y="${height - bottom + 17}" transform="rotate(45 ${x(index)} ${height - bottom + 17})">${esc(event.label)}</text>`).join("")
   return `<svg viewBox="0 0 ${width} ${height}" role="img" aria-label="Cumulative input tokens over elapsed time with tool-call markers">
     <line class="axis" x1="${left}" y1="${height-bottom}" x2="${width-right}" y2="${height-bottom}"/>

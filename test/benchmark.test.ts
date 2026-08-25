@@ -77,6 +77,10 @@ if (method === "GET" && suffix === "context") {
     tokens: { input: isPrewalk ? 800 : 1000, output: isPrewalk ? 150 : 200, reasoning: 50, cache: { read: 0, write: 0 } },
     content: [
       { type: "tool", name: isPrewalk ? "patch" : "write", state: { status: "completed" }, time: { created: 1, completed: 3 } },
+      ...(isPrewalk ? [] : [
+        { type: "tool", name: "shell", state: { status: "completed", input: { command: "rg TODO src | head" } }, time: { created: 4, completed: 5 } },
+        { type: "tool", name: "shell", state: { status: "completed", input: { command: "cat fixture.txt > copied.txt" } }, time: { created: 6, completed: 7 } }
+      ]),
       { type: "text", text: session.mode + " complete" }
     ] }])
   process.exit(0)
@@ -96,7 +100,8 @@ process.exit(4)
   const report = JSON.parse(readFileSync(join(output, "report.json"), "utf8"))
   assert.equal(report.normal.tokens.input, 1000)
   assert.equal(report.prewalk.tokens.input, 800)
-  assert.deepEqual(report.normal.toolCalls, ["write"])
+  assert.deepEqual(report.normal.toolCalls, ["write", "read", "shell"])
+  assert.deepEqual(report.normal.rawToolCalls, ["write", "shell", "shell"])
   assert.deepEqual(report.prewalk.toolCalls, ["patch"])
   assert.equal(report.comparison.inputTokensPercent, -20)
   assert.ok(Math.abs(report.normal.cost - 0.009) < 1e-9)

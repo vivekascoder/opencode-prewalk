@@ -128,6 +128,8 @@ The script writes a Markdown summary, raw JSON, both Git patches, and a self-con
 
 Reports estimate cost using [OpenAI's Standard API pricing](https://developers.openai.com/api/docs/pricing) for Sol and Luna, including uncached input, cached input, cache writes, output, reasoning, and long-context multipliers. The HTML chart plots cumulative input-token usage across the tool sequence.
 
+Tool timelines use semantic labels: a shell invocation containing only conservative read operations such as `rg`, `grep`, `cat`, `head`, `tail`, `find`, or `git diff` is displayed as `read`. Commands with writes, redirection, mutating flags, mixed behavior, or unknown executables remain `shell`; raw tool names and commands stay available in the JSON and chart tooltips.
+
 ```sh
 # Choose a report location or benchmark another committed revision.
 benchmark.sh --output /tmp/prewalk-report --revision main "implement the task"

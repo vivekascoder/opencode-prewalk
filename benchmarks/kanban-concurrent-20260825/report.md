@@ -20,8 +20,8 @@ Pricing uses OpenAI's short-context Standard rates per 1M tokens: Sol $4 input /
 
 ## Tool sequence
 
-- Normal: read | read | glob | shell | read | shell | shell | patch | patch | patch | patch | shell | read | patch | shell | patch | shell | shell | shell | patch | shell | shell | shell | shell | shell | glob | read
-- Prewalk: read | read | glob | shell | subagent | subagent | read | shell | shell | execute | patch | patch | patch | patch | patch | grep | patch | patch | shell | shell | shell | shell | shell | patch | shell | shell | shell | patch | shell | shell | grep | patch | read | patch | shell | shell | shell | shell | shell | patch | shell | shell | shell
+- Normal: read | read | glob | read | read | shell | read | patch | patch | patch | patch | shell | read | patch | shell | patch | shell | shell | read | patch | shell | shell | read | shell | read | glob | read
+- Prewalk: read | read | glob | read | subagent | subagent | read | shell | read | execute | patch | patch | patch | patch | patch | grep | patch | patch | shell | read | shell | shell | shell | patch | shell | shell | shell | patch | shell | shell | grep | patch | read | patch | shell | shell | read | shell | shell | patch | shell | shell | read
 
 ## Normal changes
 
