@@ -279,7 +279,7 @@ function summarize(mode) {
   const info = readJSON(path.join(directory, "session.json"))
   const messages = readJSON(path.join(directory, "context.json"))
   const run = JSON.parse(fs.readFileSync(path.join(directory, "run.json"), "utf8"))
-  const changes = fs.readFileSync(path.join(directory, "changes.txt"), "utf8").trim().split("\n").filter(Boolean)
+  const changes = fs.readFileSync(path.join(directory, "changes.txt"), "utf8").split(/\r?\n/).filter(Boolean)
   const assistants = messages.filter(message => message.type === "assistant")
   const steps = assistants.map((message, index) => {
     const tools = (message.content ?? []).filter(part => part.type === "tool").map(part => ({
