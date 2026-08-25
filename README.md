@@ -126,6 +126,8 @@ The normal baseline uses GPT-5.6 Sol with the `high` variant for the full task. 
 
 The script writes a Markdown summary, raw JSON, both Git patches, and a self-contained HTML comparison with context-growth lines superimposed over each tool sequence. By default reports go to `.opencode-prewalk/benchmarks/<timestamp>` in the repository being benchmarked. Temporary worktrees live under `.opencode-prewalk/worktrees` so OpenCode treats them as part of the authorized project; they are removed after their diffs and session data have been captured.
 
+Reports estimate cost using [OpenAI's Standard API pricing](https://developers.openai.com/api/docs/pricing) for Sol and Luna, including uncached input, cached input, cache writes, output, reasoning, and long-context multipliers. The HTML chart plots cumulative input-token usage across the tool sequence.
+
 ```sh
 # Choose a report location or benchmark another committed revision.
 benchmark.sh --output /tmp/prewalk-report --revision main "implement the task"

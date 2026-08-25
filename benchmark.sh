@@ -273,6 +273,32 @@ const output = process.env.BENCH_OUTPUT
 const unwrap = value => value && Object.hasOwn(value, "data") ? value.data : value
 const readJSON = file => unwrap(JSON.parse(fs.readFileSync(file, "utf8")))
 const sumToken = (values, key) => values.reduce((sum, value) => sum + Number(value?.[key] ?? 0), 0)
+const pricing = {
+  source: "https://developers.openai.com/api/docs/pricing",
+  checkedAt: "2026-08-25",
+  tier: "standard",
+  currency: "USD",
+  unit: "per 1M tokens",
+  longContextThreshold: 272_000,
+  models: {
+    "gpt-5.6-sol": { input: 4, cachedInput: 0.4, cacheWrite: 5, output: 20 },
+    "gpt-5.6-luna": { input: 0.2, cachedInput: 0.02, cacheWrite: 0.25, output: 1.2 },
+  },
+}
+
+function priceStep(modelID, tokens) {
+  const rates = pricing.models[modelID]
+  if (!rates) return null
+  const longContext = Number(tokens.input ?? 0) + Number(tokens.cache?.read ?? 0) + Number(tokens.cache?.write ?? 0) > pricing.longContextThreshold
+  const inputMultiplier = longContext ? 2 : 1
+  const outputMultiplier = longContext ? 1.5 : 1
+  return (
+    Number(tokens.input ?? 0) * rates.input * inputMultiplier
+    + Number(tokens.cache?.read ?? 0) * rates.cachedInput * inputMultiplier
+    + Number(tokens.cache?.write ?? 0) * rates.cacheWrite * inputMultiplier
+    + (Number(tokens.output ?? 0) + Number(tokens.reasoning ?? 0)) * rates.output * outputMultiplier
+  ) / 1_000_000
+}
 
 function summarize(mode) {
   const directory = path.join(output, mode)
@@ -291,6 +317,7 @@ function summarize(mode) {
     }))
     return {
       index: index + 1,
+      modelID: message.model?.id ?? "unknown",
       model: `${message.model?.providerID ?? "?"}/${message.model?.id ?? "?"}${message.model?.variant ? `#${message.model.variant}` : ""}`,
       finish: message.finish ?? null,
       cost: Number(message.cost ?? 0),
@@ -298,6 +325,7 @@ function summarize(mode) {
       tools,
     }
   })
+  for (const step of steps) step.estimatedCost = priceStep(step.modelID, step.tokens)
   const tokenSource = info.tokens ?? {
     input: sumToken(steps.map(step => step.tokens), "input"),
     output: sumToken(steps.map(step => step.tokens), "output"),
@@ -309,12 +337,34 @@ function summarize(mode) {
   }
   const finalAnswer = assistants.flatMap(message => message.content ?? [])
     .filter(part => part.type === "text" && part.text?.trim()).at(-1)?.text ?? ""
+  const pricedSteps = steps.filter(step => step.estimatedCost !== null)
+  const estimatedCost = pricedSteps.length === steps.length
+    ? pricedSteps.reduce((sum, step) => sum + step.estimatedCost, 0)
+    : null
+  const pricingBreakdown = Object.values(steps.reduce((models, step) => {
+    const current = models[step.modelID] ??= {
+      modelID: step.modelID,
+      steps: 0,
+      tokens: { input: 0, output: 0, reasoning: 0, cache: { read: 0, write: 0 } },
+      estimatedCost: 0,
+    }
+    current.steps += 1
+    current.tokens.input += Number(step.tokens.input ?? 0)
+    current.tokens.output += Number(step.tokens.output ?? 0)
+    current.tokens.reasoning += Number(step.tokens.reasoning ?? 0)
+    current.tokens.cache.read += Number(step.tokens.cache?.read ?? 0)
+    current.tokens.cache.write += Number(step.tokens.cache?.write ?? 0)
+    current.estimatedCost += Number(step.estimatedCost ?? 0)
+    return models
+  }, {}))
   return {
     mode,
     sessionID: run.sessionID,
     outcome: info.outcome ?? "unknown",
     durationSeconds: run.durationSeconds,
-    cost: Number(info.cost ?? sumToken(steps, "cost")),
+    cost: estimatedCost,
+    reportedCost: Number(info.cost ?? sumToken(steps, "cost")),
+    pricingBreakdown,
     tokens: tokenSource,
     models: [...new Set(steps.map(step => step.model))],
     toolCalls: steps.flatMap(step => step.tools.map(tool => tool.name)),
@@ -343,6 +393,7 @@ const report = {
   task: process.env.BENCH_TASK,
   commit: process.env.BENCH_COMMIT,
   generatedAt: new Date().toISOString(),
+  pricing,
   normal,
   prewalk,
   comparison,
@@ -350,7 +401,7 @@ const report = {
 fs.writeFileSync(path.join(output, "report.json"), JSON.stringify(report, null, 2) + "\n")
 
 const fmtNumber = value => Number(value ?? 0).toLocaleString("en-US")
-const fmtCost = value => `$${Number(value ?? 0).toFixed(4)}`
+const fmtCost = value => value === null ? "n/a" : `$${Number(value ?? 0).toFixed(4)}`
 const fmtPercent = value => value === null ? "n/a" : `${value >= 0 ? "+" : ""}${value.toFixed(1)}%`
 const toolSequence = run => run.toolCalls.length ? run.toolCalls.join(" | ") : "(no tools)"
 const changed = run => run.changedFiles.length ? run.changedFiles.map(line => `- \`${line}\``).join("\n") : "- (none)"
@@ -364,12 +415,15 @@ Revision: \`${report.commit}\`
 |---|---:|---:|---:|
 | Outcome | ${normal.outcome} | ${prewalk.outcome} | — |
 | Duration | ${normal.durationSeconds}s | ${prewalk.durationSeconds}s | ${fmtPercent(comparison.durationPercent)} |
-| Cost | ${fmtCost(normal.cost)} | ${fmtCost(prewalk.cost)} | ${fmtPercent(comparison.costPercent)} |
+| Estimated Standard API cost | ${fmtCost(normal.cost)} | ${fmtCost(prewalk.cost)} | ${fmtPercent(comparison.costPercent)} |
 | Input tokens | ${fmtNumber(normal.tokens.input)} | ${fmtNumber(prewalk.tokens.input)} | ${fmtPercent(comparison.inputTokensPercent)} |
+| Cached input tokens | ${fmtNumber(normal.tokens.cache.read)} | ${fmtNumber(prewalk.tokens.cache.read)} | — |
 | Output tokens | ${fmtNumber(normal.tokens.output)} | ${fmtNumber(prewalk.tokens.output)} | ${fmtPercent(comparison.outputTokensPercent)} |
 | Reasoning tokens | ${fmtNumber(normal.tokens.reasoning)} | ${fmtNumber(prewalk.tokens.reasoning)} | — |
 | Tool calls | ${normal.toolCalls.length} | ${prewalk.toolCalls.length} | — |
 | Changed files | ${normal.changedFiles.length} | ${prewalk.changedFiles.length} | — |
+
+Pricing uses OpenAI's short-context Standard rates per 1M tokens: Sol $4 input / $0.40 cached input / $5 cache write / $20 output; Luna $0.20 / $0.02 / $0.25 / $1.20. Reasoning tokens are priced as output. Requests above 272K input tokens automatically use OpenAI's 2x input and 1.5x output multipliers. Source: ${pricing.source}
 
 ## Tool sequence
 
@@ -398,19 +452,21 @@ fs.writeFileSync(path.join(output, "report.md"), markdown)
 
 const esc = value => String(value).replace(/[&<>"']/g, char => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[char])
 function chart(run) {
+  let cumulativeInput = 0
   const events = run.steps.flatMap(step => {
+    cumulativeInput += Number(step.tokens?.input ?? 0)
     const labels = step.tools.length ? step.tools.map(tool => tool.name) : [step.finish === "stop" ? "response" : step.finish ?? "step"]
-    return labels.map(label => ({ label, input: Number(step.tokens?.input ?? 0), model: step.model }))
+    return labels.map(label => ({ label, cumulativeInput, model: step.model }))
   })
   if (!events.length) return "<p>No model steps recorded.</p>"
   const width = 760, height = 260, left = 58, right = 18, top = 20, bottom = 82
-  const maximum = Math.max(...events.map(event => event.input), 1)
+  const maximum = Math.max(...events.map(event => event.cumulativeInput), 1)
   const x = index => events.length === 1 ? (left + width - right) / 2 : left + index * (width - left - right) / (events.length - 1)
   const y = value => top + (maximum - value) * (height - top - bottom) / maximum
-  const points = events.map((event, index) => `${x(index)},${y(event.input)}`).join(" ")
-  const dots = events.map((event, index) => `<circle cx="${x(index)}" cy="${y(event.input)}" r="4"><title>${esc(event.label)}: ${event.input.toLocaleString()} input tokens\n${esc(event.model)}</title></circle>`).join("")
+  const points = events.map((event, index) => `${x(index)},${y(event.cumulativeInput)}`).join(" ")
+  const dots = events.map((event, index) => `<circle cx="${x(index)}" cy="${y(event.cumulativeInput)}" r="4"><title>${esc(event.label)}: ${event.cumulativeInput.toLocaleString()} cumulative input tokens\n${esc(event.model)}</title></circle>`).join("")
   const labels = events.map((event, index) => `<text x="${x(index)}" y="${height - bottom + 17}" transform="rotate(45 ${x(index)} ${height - bottom + 17})">${esc(event.label)}</text>`).join("")
-  return `<svg viewBox="0 0 ${width} ${height}" role="img" aria-label="Context input tokens over tool calls">
+  return `<svg viewBox="0 0 ${width} ${height}" role="img" aria-label="Cumulative input tokens over tool calls">
     <line class="axis" x1="${left}" y1="${height-bottom}" x2="${width-right}" y2="${height-bottom}"/>
     <line class="axis" x1="${left}" y1="${top}" x2="${left}" y2="${height-bottom}"/>
     <text class="tick" x="4" y="${top+4}">${maximum.toLocaleString()}</text><text class="tick" x="34" y="${height-bottom+4}">0</text>
@@ -431,7 +487,7 @@ const html = `<!doctype html><html lang="en"><head><meta charset="utf-8"><meta n
 </style></head><body><h1>Prewalk benchmark</h1><div class="sub">${esc(report.task)}<br><small>${esc(report.commit)}</small></div>
 <div class="delta"><span>Duration ${fmtPercent(comparison.durationPercent)}</span><span>Cost ${fmtPercent(comparison.costPercent)}</span><span>Input tokens ${fmtPercent(comparison.inputTokensPercent)}</span></div>
 <div class="grid">${card(normal, "Normal · Sol high")}${card(prewalk, "Prewalk · Sol → Luna")}</div>
-<p class="note">Each point uses the input-token count of the model step that emitted that tool call. Batched tool calls therefore share a context point.</p></body></html>`
+<p class="note">The line adds each model step's input tokens to all previous steps, showing cumulative input-token usage over the tool sequence. Batched tool calls share a cumulative point. Costs use OpenAI Standard short-context pricing and include cached input, cache writes, output, and reasoning tokens.</p></body></html>`
 fs.writeFileSync(path.join(output, "report.html"), html)
 NODE
 
