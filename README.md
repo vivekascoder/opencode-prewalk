@@ -120,7 +120,7 @@ Run one task twice from the same Git commit in isolated temporary worktrees:
 
 The normal baseline uses GPT-5.6 Sol with the `high` variant for the full task. The Prewalk run begins with the same model and variant, then hands the session to GPT-5.6 Luna with the `medium` variant after the todo-gated first edit. Runs are sequential so they do not compete for local resources. A control instruction prevents the normal run from auto-loading any separately installed Prewalk skill, while the user task itself remains identical.
 
-The script writes a Markdown summary, raw JSON, both Git patches, and a self-contained HTML comparison with context-growth lines superimposed over each tool sequence. By default reports go to `.opencode-prewalk/benchmarks/<timestamp>` in the repository being benchmarked. The temporary worktrees are removed after their diffs and session data have been captured.
+The script writes a Markdown summary, raw JSON, both Git patches, and a self-contained HTML comparison with context-growth lines superimposed over each tool sequence. By default reports go to `.opencode-prewalk/benchmarks/<timestamp>` in the repository being benchmarked. Temporary worktrees live under `.opencode-prewalk/worktrees` so OpenCode treats them as part of the authorized project; they are removed after their diffs and session data have been captured.
 
 ```sh
 # Choose a report location or benchmark another committed revision.

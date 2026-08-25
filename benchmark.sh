@@ -90,7 +90,9 @@ fi
 mkdir -p "$output_arg"
 output_directory="$(cd "$output_arg" && pwd -P)"
 
-temporary_root="$(mktemp -d "${TMPDIR:-/tmp}/opencode-prewalk-benchmark.XXXXXX")"
+worktree_parent="$source_directory/.opencode-prewalk/worktrees"
+mkdir -p "$worktree_parent"
+temporary_root="$(mktemp -d "$worktree_parent/run.XXXXXX")"
 normal_worktree="$temporary_root/normal"
 prewalk_worktree="$temporary_root/prewalk"
 
@@ -103,6 +105,8 @@ cleanup() {
   git -C "$source_directory" worktree remove --force "$normal_worktree" >/dev/null 2>&1 || true
   git -C "$source_directory" worktree remove --force "$prewalk_worktree" >/dev/null 2>&1 || true
   rmdir "$temporary_root" >/dev/null 2>&1 || true
+  rmdir "$worktree_parent" >/dev/null 2>&1 || true
+  rmdir "$source_directory/.opencode-prewalk" >/dev/null 2>&1 || true
 }
 trap cleanup EXIT INT TERM
 
