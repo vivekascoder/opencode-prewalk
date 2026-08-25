@@ -150,6 +150,20 @@ By default the runs are sequential to avoid local resource contention. Use `--co
 benchmark.sh --concurrent "implement the task"
 ```
 
+#### Published Kanban benchmark
+
+On August 25, 2026, both modes concurrently implemented the same full-stack Kanban specification from the same commit using Bun, TypeScript, Express, SQLite, REST APIs, and a vanilla frontend. Both applications passed type checking, API tests, and independent startup checks.
+
+| Result | Normal Sol | Prewalk Sol → Luna | Prewalk change |
+|---|---:|---:|---:|
+| Final idle time | 630s | 808s | +28.3% |
+| Estimated Standard API cost | $0.7281 | $0.1492 | **−79.5%** |
+| Input tokens | 39,813 | 121,431 | +205.0% |
+| Output tokens | 19,007 | 16,465 | −13.4% |
+| API tests | 7 | 6 | — |
+
+The normal implementation was more complete and had broader test coverage; Prewalk was substantially cheaper but missed two non-drag UI controls. Concurrent provider resets and a stale exploration child made this a deliberately honest but noisy run. See the [full evaluation](./benchmarks/kanban-concurrent-20260825/evaluation.md), [interactive HTML report](./benchmarks/kanban-concurrent-20260825/report.html), and [raw benchmark data](./benchmarks/kanban-concurrent-20260825/report.json).
+
 ## Configuration
 
 Plugin options accept full `provider/model` identifiers and OpenCode model variants:

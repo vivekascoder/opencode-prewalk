@@ -311,6 +311,7 @@ function summarize(mode) {
     const tools = (message.content ?? []).filter(part => part.type === "tool").map(part => ({
       name: part.name,
       status: part.state?.status ?? part.state?.type ?? "unknown",
+      createdAt: Number(part.time?.created ?? 0),
       durationMs: part.time?.completed && (part.time?.ran ?? part.time?.created)
         ? part.time.completed - (part.time.ran ?? part.time.created)
         : null,
@@ -319,6 +320,8 @@ function summarize(mode) {
       index: index + 1,
       modelID: message.model?.id ?? "unknown",
       model: `${message.model?.providerID ?? "?"}/${message.model?.id ?? "?"}${message.model?.variant ? `#${message.model.variant}` : ""}`,
+      createdAt: Number(message.time?.created ?? 0),
+      completedAt: Number(message.time?.completed ?? 0),
       finish: message.finish ?? null,
       cost: Number(message.cost ?? 0),
       tokens: message.tokens ?? { input: 0, output: 0, reasoning: 0, cache: { read: 0, write: 0 } },
@@ -454,40 +457,65 @@ const esc = value => String(value).replace(/[&<>"']/g, char => ({ "&": "&amp;", 
 function chart(run) {
   let cumulativeInput = 0
   const events = run.steps.flatMap(step => {
-    cumulativeInput += Number(step.tokens?.input ?? 0)
+    cumulativeInput += Number(step.tokens?.input ?? 0) + Number(step.tokens?.cache?.read ?? 0) + Number(step.tokens?.cache?.write ?? 0)
     const labels = step.tools.length ? step.tools.map(tool => tool.name) : [step.finish === "stop" ? "response" : step.finish ?? "step"]
-    return labels.map(label => ({ label, cumulativeInput, model: step.model }))
+    return labels.map((label, index) => ({
+      label,
+      cumulativeInput,
+      model: step.model,
+      time: step.tools[index]?.createdAt || step.completedAt || step.createdAt || step.index,
+    }))
   })
   if (!events.length) return "<p>No model steps recorded.</p>"
   const width = 760, height = 260, left = 58, right = 18, top = 20, bottom = 82
   const maximum = Math.max(...events.map(event => event.cumulativeInput), 1)
-  const x = index => events.length === 1 ? (left + width - right) / 2 : left + index * (width - left - right) / (events.length - 1)
+  const startedAt = Math.min(...events.map(event => event.time))
+  const elapsed = events.map(event => Math.max(0, event.time - startedAt))
+  const maximumElapsed = Math.max(...elapsed, 1)
+  const x = index => left + elapsed[index] * (width - left - right) / maximumElapsed
   const y = value => top + (maximum - value) * (height - top - bottom) / maximum
   const points = events.map((event, index) => `${x(index)},${y(event.cumulativeInput)}`).join(" ")
-  const dots = events.map((event, index) => `<circle cx="${x(index)}" cy="${y(event.cumulativeInput)}" r="4"><title>${esc(event.label)}: ${event.cumulativeInput.toLocaleString()} cumulative input tokens\n${esc(event.model)}</title></circle>`).join("")
+  const dots = events.map((event, index) => `<circle cx="${x(index)}" cy="${y(event.cumulativeInput)}" r="4"><title>${esc(event.label)}: ${event.cumulativeInput.toLocaleString()} cumulative input tokens (including cached)\n${esc(event.model)}</title></circle>`).join("")
   const labels = events.map((event, index) => `<text x="${x(index)}" y="${height - bottom + 17}" transform="rotate(45 ${x(index)} ${height - bottom + 17})">${esc(event.label)}</text>`).join("")
-  return `<svg viewBox="0 0 ${width} ${height}" role="img" aria-label="Cumulative input tokens over tool calls">
+  return `<svg viewBox="0 0 ${width} ${height}" role="img" aria-label="Cumulative input tokens over elapsed time with tool-call markers">
     <line class="axis" x1="${left}" y1="${height-bottom}" x2="${width-right}" y2="${height-bottom}"/>
     <line class="axis" x1="${left}" y1="${top}" x2="${left}" y2="${height-bottom}"/>
     <text class="tick" x="4" y="${top+4}">${maximum.toLocaleString()}</text><text class="tick" x="34" y="${height-bottom+4}">0</text>
+    <text class="tick" x="${left}" y="${height-5}">0s</text><text class="tick" x="${width-right-42}" y="${height-5}">${Math.round(maximumElapsed / 1000)}s</text>
     <polyline points="${points}"/>${dots}${labels}</svg>`
 }
 function card(run, title) {
   return `<section><h2>${title}</h2><div class="metrics">
     <span><b>${esc(run.outcome)}</b> outcome</span><span><b>${run.durationSeconds}s</b> duration</span>
-    <span><b>${fmtCost(run.cost)}</b> cost</span><span><b>${fmtNumber(run.tokens.input)}</b> input tokens</span>
+    <span><b>${fmtCost(run.cost)}</b> estimated cost</span><span><b>${fmtNumber(run.tokens.input)}</b> input tokens</span>
     <span><b>${run.toolCalls.length}</b> tool calls</span><span><b>${run.changedFiles.length}</b> changed files</span>
     </div>${chart(run)}<details><summary>Tool sequence</summary><code>${esc(toolSequence(run))}</code></details>
     <details><summary>Changed files</summary><pre>${esc(run.changedFiles.join("\n") || "(none)")}</pre></details>
     <details><summary>Final answer</summary><pre>${esc(run.finalAnswer || "(none)")}</pre></details></section>`
 }
+function costBreakdown(run) {
+  return run.pricingBreakdown.map(item => `<li><b>${esc(item.modelID)}</b>: ${fmtCost(item.estimatedCost)} <small>(${item.steps} steps)</small></li>`).join("")
+}
+function pricingPanel() {
+  const sol = pricing.models["gpt-5.6-sol"]
+  const luna = pricing.models["gpt-5.6-luna"]
+  return `<section class="pricing"><h2>Estimated Standard API pricing</h2>
+    <div class="price-summary"><div><strong>${fmtCost(normal.cost)}</strong><span>Normal total</span><ul>${costBreakdown(normal)}</ul></div>
+    <div><strong>${fmtCost(prewalk.cost)}</strong><span>Prewalk total</span><ul>${costBreakdown(prewalk)}</ul></div>
+    <div><strong>${fmtPercent(comparison.costPercent)}</strong><span>Prewalk cost change</span></div></div>
+    <table><thead><tr><th>Model</th><th>Input</th><th>Cached input</th><th>Cache write</th><th>Output</th></tr></thead><tbody>
+    <tr><td>GPT-5.6 Sol</td><td>$${sol.input.toFixed(2)}</td><td>$${sol.cachedInput.toFixed(2)}</td><td>$${sol.cacheWrite.toFixed(2)}</td><td>$${sol.output.toFixed(2)}</td></tr>
+    <tr><td>GPT-5.6 Luna</td><td>$${luna.input.toFixed(2)}</td><td>$${luna.cachedInput.toFixed(2)}</td><td>$${luna.cacheWrite.toFixed(2)}</td><td>$${luna.output.toFixed(2)}</td></tr>
+    </tbody></table><p class="note">USD per 1M tokens · Standard · short context · checked ${pricing.checkedAt}. Reasoning is priced as output. <a href="${pricing.source}">OpenAI pricing source</a></p></section>`
+}
 const html = `<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
 <title>Prewalk benchmark</title><style>
-:root{color-scheme:dark;font-family:ui-monospace,SFMono-Regular,Menlo,monospace;background:#0b1020;color:#e7ecf7}body{max-width:1600px;margin:auto;padding:32px}h1{margin-bottom:6px}.sub{color:#9ba8c7;margin-bottom:28px}.grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(520px,1fr));gap:20px}section{background:#121a30;border:1px solid #263251;border-radius:14px;padding:20px;min-width:0}.metrics{display:flex;flex-wrap:wrap;gap:9px;margin-bottom:12px}.metrics span{background:#1a2542;padding:8px 10px;border-radius:8px;color:#aebbd7}.metrics b{color:#fff}svg{width:100%;height:auto;overflow:visible}polyline{fill:none;stroke:#7dd3fc;stroke-width:3}circle{fill:#fbbf24;stroke:#121a30;stroke-width:2}.axis{stroke:#52617f}.tick,svg text{fill:#9ba8c7;font-size:10px}details{margin-top:12px}summary{cursor:pointer;color:#a5b4fc}pre,code{white-space:pre-wrap;overflow-wrap:anywhere}.delta{display:flex;gap:12px;flex-wrap:wrap;margin:20px 0}.delta span{padding:8px 12px;background:#18223c;border-radius:8px}.note{color:#9ba8c7;font-size:13px}
+:root{color-scheme:dark;font-family:ui-monospace,SFMono-Regular,Menlo,monospace;background:#0b1020;color:#e7ecf7}body{max-width:1600px;margin:auto;padding:32px}h1{margin-bottom:6px}.sub{color:#9ba8c7;margin-bottom:28px}.grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(520px,1fr));gap:20px}section{background:#121a30;border:1px solid #263251;border-radius:14px;padding:20px;min-width:0}.metrics{display:flex;flex-wrap:wrap;gap:9px;margin-bottom:12px}.metrics span{background:#1a2542;padding:8px 10px;border-radius:8px;color:#aebbd7}.metrics b{color:#fff}svg{width:100%;height:auto;overflow:visible}polyline{fill:none;stroke:#7dd3fc;stroke-width:3}circle{fill:#fbbf24;stroke:#121a30;stroke-width:2}.axis{stroke:#52617f}.tick,svg text{fill:#9ba8c7;font-size:10px}details{margin-top:12px}summary{cursor:pointer;color:#a5b4fc}pre,code{white-space:pre-wrap;overflow-wrap:anywhere}.delta{display:flex;gap:12px;flex-wrap:wrap;margin:20px 0}.delta span{padding:8px 12px;background:#18223c;border-radius:8px}.note{color:#9ba8c7;font-size:13px}.pricing{margin:20px 0}.price-summary{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:12px;margin:16px 0}.price-summary>div{background:#1a2542;border-radius:10px;padding:14px}.price-summary strong{display:block;color:#86efac;font-size:22px}.price-summary span,.price-summary small{color:#9ba8c7}.price-summary ul{padding-left:18px;margin-bottom:0;font-size:12px}table{width:100%;border-collapse:collapse;margin-top:14px}th,td{text-align:right;padding:9px;border-bottom:1px solid #263251}th:first-child,td:first-child{text-align:left}a{color:#7dd3fc}@media(max-width:700px){body{padding:18px}.grid{grid-template-columns:1fr}.price-summary{grid-template-columns:1fr}}
 </style></head><body><h1>Prewalk benchmark</h1><div class="sub">${esc(report.task)}<br><small>${esc(report.commit)}</small></div>
 <div class="delta"><span>Duration ${fmtPercent(comparison.durationPercent)}</span><span>Cost ${fmtPercent(comparison.costPercent)}</span><span>Input tokens ${fmtPercent(comparison.inputTokensPercent)}</span></div>
+${pricingPanel()}
 <div class="grid">${card(normal, "Normal · Sol high")}${card(prewalk, "Prewalk · Sol → Luna")}</div>
-<p class="note">The line adds each model step's input tokens to all previous steps, showing cumulative input-token usage over the tool sequence. Batched tool calls share a cumulative point. Costs use OpenAI Standard short-context pricing and include cached input, cache writes, output, and reasoning tokens.</p></body></html>`
+<p class="note">The x-axis is elapsed wall time and tool names are event markers. The line adds each model step's uncached input, cached input, and cache writes to all previous steps, showing cumulative input/context consumption over time. Batched tool calls share a cumulative point. Costs use OpenAI Standard short-context pricing and include cached input, cache writes, output, and reasoning tokens.</p></body></html>`
 fs.writeFileSync(path.join(output, "report.html"), html)
 NODE
 

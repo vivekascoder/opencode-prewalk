@@ -11,6 +11,7 @@
     "install.sh",
     "headless.sh",
     "benchmark.sh",
+    "benchmarks",
     "assets",
     "README.md",
     "LICENSE",
