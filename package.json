@@ -8,6 +8,7 @@
   },
   "files": [
     "src",
+    "install.sh",
     "README.md",
     "LICENSE",
     "NOTICE"
@@ -15,7 +16,7 @@
   "scripts": {
     "typecheck": "tsc --noEmit",
     "test": "node --import tsx --test test/**/*.test.ts",
-    "verify": "npm run typecheck && npm test"
+    "verify": "bash -n install.sh && npm run typecheck && npm test"
   },
   "keywords": [
     "opencode",

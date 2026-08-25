@@ -20,24 +20,66 @@ executor variant: medium
 
 This transfers the grounded trajectory—not a prose summary or a fresh thread—to the executor.
 
-## Install from this checkout
+## Quick install
 
-Requires Node.js 20+ and an OpenCode 2 build supporting the beta plugin API.
+Requirements:
+
+- Node.js 20+
+- Git and npm
+- A current `opencode2` installation
+- Authentication for the planner and executor models
+
+Install or update automatically:
 
 ```sh
-npm install
+curl -fsSL https://raw.githubusercontent.com/vivekascoder/opencode-prewalk/main/install.sh | bash
 ```
 
-Add the plugin to `opencode.jsonc` using a path that is correct relative to that config file:
+The installer:
+
+- clones or updates the repository at `~/.local/share/opencode-prewalk`
+- installs the plugin's runtime dependencies
+- links it at `~/.config/opencode/plugins/opencode-prewalk`, where OpenCode discovers global plugins automatically
+- preserves a single checkout, so rerunning the same command updates the installation
+- refuses to overwrite an existing non-symlink plugin directory
+
+Restart OpenCode after installing or updating.
+
+Installer paths can be overridden:
+
+```sh
+export OPENCODE_PREWALK_DIR="$HOME/.local/share/opencode-prewalk"
+export OPENCODE_PREWALK_PLUGIN_DIR="$HOME/.config/opencode/plugins/opencode-prewalk"
+```
+
+## Manual install
+
+Clone the repository and install its runtime dependencies:
+
+```sh
+git clone https://github.com/vivekascoder/opencode-prewalk.git ~/.local/share/opencode-prewalk
+npm --prefix ~/.local/share/opencode-prewalk install --omit=dev
+```
+
+Add the plugin entry to `~/.config/opencode/opencode.jsonc`. Replace the example with the absolute path to your checkout:
 
 ```jsonc
 {
   "$schema": "https://opencode.ai/config.json",
-  "plugins": ["./src/index.ts"]
+  "plugins": ["/absolute/path/to/opencode-prewalk/src/index.ts"]
 }
 ```
 
-When this package is published, the equivalent package configuration will be:
+If the file already contains settings or plugins, merge this entry into the existing `plugins` array. Restart OpenCode afterward.
+
+To update a manual installation:
+
+```sh
+git -C ~/.local/share/opencode-prewalk pull --ff-only
+npm --prefix ~/.local/share/opencode-prewalk install --omit=dev
+```
+
+When the package is published to npm, the equivalent configuration will be:
 
 ```jsonc
 {
