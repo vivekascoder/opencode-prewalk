@@ -9,7 +9,14 @@ interface Harness {
     prompt: { text: string }
     delivery: "steer" | "queue"
   }) => Promise<void>
-  context: (event: { sessionID: string; system: Array<{ type: "text"; text: string }> }) => void
+  context: (event: {
+    sessionID: string
+    system: Array<{ type: "text"; text: string }>
+    messages: Array<{
+      role: "user" | "assistant"
+      content: Array<{ type: "text"; text: string }>
+    }>
+  }) => void
   after: (event: {
     sessionID: string
     tool: string
@@ -19,6 +26,7 @@ interface Harness {
   switched: Array<{ sessionID: string; model: { providerID: string; id: string; variant?: string } }>
   prompted: Array<Record<string, unknown>>
   notices: string[]
+  todoTool?: { execute: (input: { items: string[] }) => Promise<{ content: string }> }
   cleanup: () => Promise<void>
   disposed: { count: number }
 }
@@ -27,6 +35,7 @@ async function harness(options: Record<string, unknown> = {}): Promise<Harness> 
   let command: Harness["command"] | undefined
   let context: Harness["context"] | undefined
   let after: Harness["after"] | undefined
+  let todoTool: Harness["todoTool"]
   const switched: Harness["switched"] = []
   const prompted: Harness["prompted"] = []
   const notices: string[] = []
@@ -49,6 +58,10 @@ async function harness(options: Record<string, unknown> = {}): Promise<Harness> 
       synthetic: async (input: { text: string }) => void notices.push(input.text),
     },
     tool: {
+      transform: async (callback: (draft: { add: (tool: Harness["todoTool"]) => void }) => void) => {
+        callback({ add: (tool) => void (todoTool = tool) })
+        return registration()
+      },
       hook: async (name: string, callback: unknown) => {
         assert.equal(name, "execute.after")
         after = callback as Harness["after"]
@@ -72,6 +85,7 @@ async function harness(options: Record<string, unknown> = {}): Promise<Harness> 
     switched,
     prompted,
     notices,
+    todoTool,
     cleanup: async () => void (await cleanup()),
     disposed,
   }
@@ -83,11 +97,18 @@ test("uses Sol for planning and switches to Luna only after todo plus a successf
 
   assert.deepEqual(h.switched[0], {
     sessionID: "s1",
-    model: { providerID: "opencode", id: "gpt-5.6-sol", variant: "high" },
+    model: { providerID: "openai", id: "gpt-5.6-sol", variant: "high" },
   })
   assert.equal(h.prompted[0]?.text, "fix the tests")
+  assert.deepEqual(h.prompted[0]?.files, [])
+  assert.deepEqual(h.prompted[0]?.agents, [])
+  assert.deepEqual(h.prompted[0]?.skills, [])
 
-  const planningContext = { sessionID: "s1", system: [] as Array<{ type: "text"; text: string }> }
+  const planningContext = {
+    sessionID: "s1",
+    system: [] as Array<{ type: "text"; text: string }>,
+    messages: [],
+  }
   h.context(planningContext)
   assert.equal(planningContext.system[0]?.text, PLANNING_NUDGE)
 
@@ -95,26 +116,36 @@ test("uses Sol for planning and switches to Luna only after todo plus a successf
   await h.after({ sessionID: "s1", tool: "apply_patch", status: "completed" })
   assert.equal(h.switched.length, 1)
 
-  await h.after({ sessionID: "s1", tool: "functions.update-plan", status: "completed" })
+  const todo = await h.todoTool?.execute({ items: ["Edit", "Validate"] })
+  assert.equal(todo?.content, "1. Edit\n2. Validate")
+  await h.after({ sessionID: "s1", tool: "prewalk_todo", status: "completed" })
   await h.after({ sessionID: "s1", tool: "apply_patch", status: "error", error: { message: "nope" } })
   assert.equal(h.switched.length, 1)
 
   await h.after({ sessionID: "s1", tool: "functions.apply-patch", status: "completed" })
   assert.deepEqual(h.switched[1], {
     sessionID: "s1",
-    model: { providerID: "opencode", id: "gpt-5.6-luna", variant: "medium" },
+    model: { providerID: "openai", id: "gpt-5.6-luna", variant: "medium" },
   })
 
-  const executorContext = { sessionID: "s1", system: [] as Array<{ type: "text"; text: string }> }
+  const executorContext = {
+    sessionID: "s1",
+    system: [] as Array<{ type: "text"; text: string }>,
+    messages: [],
+  }
   h.context(executorContext)
   assert.equal(executorContext.system[0]?.text, EXECUTOR_NUDGE)
   assert.ok(!executorContext.system.some((part) => part.text === PLANNING_NUDGE))
 
-  const laterContext = { sessionID: "s1", system: [] as Array<{ type: "text"; text: string }> }
+  const laterContext = {
+    sessionID: "s1",
+    system: [] as Array<{ type: "text"; text: string }>,
+    messages: [],
+  }
   h.context(laterContext)
   assert.deepEqual(laterContext.system, [])
   await h.cleanup()
-  assert.equal(h.disposed.count, 3)
+  assert.equal(h.disposed.count, 4)
 })
 
 test("supports overrides, status, and disarming", async () => {
@@ -133,7 +164,11 @@ test("supports overrides, status, and disarming", async () => {
   assert.equal(h.notices.at(-1), "Prewalk is planning.")
   await h.command({ sessionID: "s2", prompt: { text: "off" }, delivery: "queue" })
 
-  const context = { sessionID: "s2", system: [] as Array<{ type: "text"; text: string }> }
+  const context = {
+    sessionID: "s2",
+    system: [] as Array<{ type: "text"; text: string }>,
+    messages: [],
+  }
   h.context(context)
   assert.deepEqual(context.system, [])
 })

@@ -24,16 +24,17 @@ interface SessionState {
 }
 
 const DEFAULTS = {
-  planner: "opencode/gpt-5.6-sol",
-  executor: "opencode/gpt-5.6-luna",
+  planner: "openai/gpt-5.6-sol",
+  executor: "openai/gpt-5.6-luna",
   plannerVariant: "high",
   executorVariant: "medium",
-  todoTools: ["todo", "todowrite", "todo_write", "update_todo", "update_plan"],
-  editTools: ["edit", "write", "apply_patch", "multiedit"],
+  todoTools: ["prewalk_todo", "todo", "todowrite", "todo_write", "update_todo", "update_plan"],
+  editTools: ["edit", "write", "patch", "apply_patch", "multiedit"],
 } as const
 
 export const PLANNING_NUDGE = `You are in the planning phase of a Prewalk run.
-Explore the repository deeply enough to understand the task and its constraints. Before editing, create a compact todo list with at most 8 items. Include validation in the relevant items. Then begin implementing the first item yourself. Do not stop after merely describing a plan.`
+This run is already managed by the OpenCode Prewalk plugin. Do not load, invoke, or follow any skill named prewalk.
+Explore the repository deeply enough to understand the task and its constraints. Before editing, you MUST call the prewalk_todo tool with a compact list of at most 8 items; do not substitute a prose checklist. Include validation in the relevant items. Then begin implementing the first item yourself. Do not stop after merely describing a plan.`
 
 export const EXECUTOR_NUDGE = `Continue the implementation already in progress. Follow and maintain the existing todo list, complete every remaining item, and run the planned validation before declaring the task finished.`
 
@@ -96,6 +97,31 @@ export function createPrewalkPlugin() {
       const todoTools = toolSet(optionStrings(ctx.options, "todoTools", DEFAULTS.todoTools))
       const editTools = toolSet(optionStrings(ctx.options, "editTools", DEFAULTS.editTools))
       const sessions = new Map<string, SessionState>()
+
+      const todoToolRegistration = await ctx.tool.transform((draft) => {
+        draft.add({
+          name: "prewalk_todo",
+          description: "Record the compact implementation checklist required before the first edit in a Prewalk run.",
+          input: {
+            type: "object",
+            properties: {
+              items: {
+                type: "array",
+                items: { type: "string" },
+                minItems: 1,
+                maxItems: 8,
+                description: "Ordered implementation and validation steps.",
+              },
+            },
+            required: ["items"],
+            additionalProperties: false,
+          },
+          execute: async (input) => {
+            const items = (input as { items: string[] }).items
+            return { content: items.map((item, index) => `${index + 1}. ${item}`).join("\n") }
+          },
+        })
+      })
 
       const contextRegistration = await ctx.session.hook("context", (event) => {
         const state = sessions.get(event.sessionID)
@@ -161,9 +187,11 @@ export function createPrewalkPlugin() {
             }
 
             await ctx.session.prompt({
-              ...prompt,
               sessionID,
               text: input,
+              files: prompt.files ?? [],
+              agents: prompt.agents ?? [],
+              skills: prompt.skills ?? [],
               delivery,
             })
           },
@@ -174,6 +202,7 @@ export function createPrewalkPlugin() {
         sessions.clear()
         await Promise.all([
           contextRegistration.dispose(),
+          todoToolRegistration.dispose(),
           toolRegistration.dispose(),
           commandRegistration.dispose(),
         ])

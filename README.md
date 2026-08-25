@@ -5,9 +5,9 @@ Prewalk for OpenCode 2: let a frontier model explore, plan, create a todo list, 
 The initial defaults are:
 
 ```text
-planner:          opencode/gpt-5.6-sol
+planner:          openai/gpt-5.6-sol
 planner variant:  high
-executor:         opencode/gpt-5.6-luna
+executor:         openai/gpt-5.6-luna
 executor variant: medium
 ```
 
@@ -15,7 +15,7 @@ executor variant: medium
 
 1. `/prewalk <task>` switches the current session to GPT-5.6 Sol.
 2. A hidden context instruction asks Sol to explore deeply, create a compact todo list, and begin the implementation.
-3. The plugin waits until a todo tool succeeds and then an edit/write tool succeeds. Shell calls, the todo call itself, and failed edits do not trigger the handoff.
+3. Sol records the plan through the plugin's `prewalk_todo` tool. The plugin then waits for a successful edit/write tool. Shell calls, the todo call itself, and failed edits do not trigger the handoff.
 4. The current session switches to GPT-5.6 Luna. The planning instruction is no longer inserted, while a one-shot executor nudge tells Luna to finish the existing todo list and validation.
 
 This transfers the grounded trajectory—not a prose summary or a fresh thread—to the executor.
@@ -39,7 +39,7 @@ The installer:
 
 - clones or updates the repository at `~/.local/share/opencode-prewalk`
 - installs the plugin's runtime dependencies
-- links it at `~/.config/opencode/plugins/opencode-prewalk`, where OpenCode discovers global plugins automatically
+- links its entrypoint at `~/.config/opencode/plugins/opencode-prewalk.ts`, where OpenCode discovers global plugins automatically
 - preserves a single checkout, so rerunning the same command updates the installation
 - refuses to overwrite an existing non-symlink plugin directory
 
@@ -49,7 +49,7 @@ Installer paths can be overridden:
 
 ```sh
 export OPENCODE_PREWALK_DIR="$HOME/.local/share/opencode-prewalk"
-export OPENCODE_PREWALK_PLUGIN_DIR="$HOME/.config/opencode/plugins/opencode-prewalk"
+export OPENCODE_PREWALK_PLUGIN_FILE="$HOME/.config/opencode/plugins/opencode-prewalk.ts"
 ```
 
 ## Manual install
@@ -98,6 +98,17 @@ When the package is published to npm, the equivalent configuration will be:
 
 Running `/prewalk` without a task arms the current session; send the task in the next message.
 
+### Headless mode
+
+Pass the task as an argument to the bundled headless wrapper:
+
+```sh
+~/.local/share/opencode-prewalk/headless.sh \
+  "fix the failing auth refresh tests"
+```
+
+This invokes the registered `/prewalk` command through OpenCode's API, waits for the session to finish, and prints the final answer. It uses the current directory as the task directory and connects to the normal OpenCode background service. `opencode2 run "/prewalk ..."` is not equivalent: the `run` subcommand sends slash-prefixed text as an ordinary prompt instead of dispatching a registered command.
+
 ## Configuration
 
 Plugin options accept full `provider/model` identifiers and OpenCode model variants:
@@ -109,9 +120,9 @@ Plugin options accept full `provider/model` identifiers and OpenCode model varia
     {
       "package": "./src/index.ts",
       "options": {
-        "planner": "opencode/gpt-5.6-sol",
+        "planner": "openai/gpt-5.6-sol",
         "plannerVariant": "high",
-        "executor": "opencode/gpt-5.6-luna",
+        "executor": "openai/gpt-5.6-luna",
         "executorVariant": "medium"
       }
     }
@@ -119,7 +130,7 @@ Plugin options accept full `provider/model` identifiers and OpenCode model varia
 }
 ```
 
-For installations whose built-in tools use different names, `todoTools` and `editTools` can be overridden with arrays of tool names. The defaults cover `todo`, `todowrite`, `todo_write`, `update_todo`, `update_plan`, `edit`, `write`, `apply_patch`, and `multiedit`, including namespaced forms.
+For installations whose built-in tools use different names, `todoTools` and `editTools` can be overridden with arrays of tool names. The defaults cover `prewalk_todo`, common built-in todo names, and the `edit`, `write`, `patch`, `apply_patch`, and `multiedit` edit names, including namespaced forms.
 
 ## Development
 

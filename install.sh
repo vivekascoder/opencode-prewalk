@@ -4,7 +4,8 @@ set -euo pipefail
 REPO_URL="${OPENCODE_PREWALK_REPO_URL:-https://github.com/vivekascoder/opencode-prewalk.git}"
 REPO_DIR="${OPENCODE_PREWALK_DIR:-$HOME/.local/share/opencode-prewalk}"
 CONFIG_HOME="${XDG_CONFIG_HOME:-$HOME/.config}"
-PLUGIN_DIR="${OPENCODE_PREWALK_PLUGIN_DIR:-$CONFIG_HOME/opencode/plugins/opencode-prewalk}"
+PLUGIN_FILE="${OPENCODE_PREWALK_PLUGIN_FILE:-${OPENCODE_PREWALK_PLUGIN_DIR:-$CONFIG_HOME/opencode/plugins/opencode-prewalk.ts}}"
+LEGACY_PLUGIN_DIR="$CONFIG_HOME/opencode/plugins/opencode-prewalk"
 
 info() { printf '→ %s\n' "$*"; }
 ok() { printf '✓ %s\n' "$*"; }
@@ -36,14 +37,19 @@ npm --prefix "$REPO_DIR" install --omit=dev --no-audit --no-fund --quiet
 
 [ -f "$REPO_DIR/src/index.ts" ] || fail "Plugin entrypoint is missing at $REPO_DIR/src/index.ts"
 
-mkdir -p "$(dirname "$PLUGIN_DIR")"
-if [ -L "$PLUGIN_DIR" ]; then
-  rm "$PLUGIN_DIR"
-elif [ -e "$PLUGIN_DIR" ]; then
-  fail "$PLUGIN_DIR already exists and is not a symlink; move/remove it before installing"
+mkdir -p "$(dirname "$PLUGIN_FILE")"
+if [ -L "$PLUGIN_FILE" ]; then
+  rm "$PLUGIN_FILE"
+elif [ -e "$PLUGIN_FILE" ]; then
+  fail "$PLUGIN_FILE already exists and is not a symlink; move/remove it before installing"
 fi
-ln -s "$REPO_DIR" "$PLUGIN_DIR"
+ln -s "$REPO_DIR/src/index.ts" "$PLUGIN_FILE"
 
-ok "Linked global OpenCode plugin at $PLUGIN_DIR"
+if [ "$LEGACY_PLUGIN_DIR" != "$PLUGIN_FILE" ] && [ -L "$LEGACY_PLUGIN_DIR" ]; then
+  rm "$LEGACY_PLUGIN_DIR"
+  info "Removed legacy package-directory link at $LEGACY_PLUGIN_DIR"
+fi
+
+ok "Linked global OpenCode plugin at $PLUGIN_FILE"
 ok "Installed opencode-prewalk"
 printf '\nRestart OpenCode, then run:\n\n  /prewalk fix the failing auth refresh tests\n\n'
