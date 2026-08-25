@@ -138,6 +138,12 @@ PREWALK_BENCHMARK_VARIANT=high \
 benchmark.sh "implement the task"
 ```
 
+By default the runs are sequential to avoid local resource contention. Use `--concurrent` to start both sessions together when wall-clock concurrency is part of the experiment:
+
+```sh
+benchmark.sh --concurrent "implement the task"
+```
+
 ## Configuration
 
 Plugin options accept full `provider/model` identifiers and OpenCode model variants:

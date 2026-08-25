@@ -43,17 +43,18 @@ const methodIndex = args.findIndex(value => value === "GET" || value === "POST")
 const method = args[methodIndex]
 const route = args[methodIndex + 1]
 const statePath = process.env.MOCK_STATE
-const state = fs.existsSync(statePath) ? JSON.parse(fs.readFileSync(statePath, "utf8")) : { next: 1, sessions: {} }
-const save = () => fs.writeFileSync(statePath, JSON.stringify(state))
 const send = data => process.stdout.write(JSON.stringify({ data }))
 if (method === "POST" && route === "/api/session") {
-  const id = "session-" + state.next++
-  state.sessions[id] = { id, mode: "normal", location: payload.location.directory }
-  save(); send({ id }); process.exit(0)
+  const id = payload.title.endsWith("prewalk") ? "session-prewalk" : "session-normal"
+  fs.writeFileSync(statePath + "." + id, JSON.stringify({ id, mode: "normal", location: payload.location.directory }))
+  send({ id }); process.exit(0)
 }
 const match = route.match(/^\\/api\\/session\\/([^/]+)(?:\\/(.*))?$/)
-if (!match || !state.sessions[match[1]]) process.exit(3)
-const session = state.sessions[match[1]]
+if (!match) process.exit(3)
+const sessionPath = statePath + "." + match[1]
+if (!fs.existsSync(sessionPath)) process.exit(3)
+const session = JSON.parse(fs.readFileSync(sessionPath, "utf8"))
+const save = () => fs.writeFileSync(sessionPath, JSON.stringify(session))
 const suffix = match[2] || ""
 if (method === "POST" && suffix === "command") session.mode = "prewalk"
 if (method === "POST" && (suffix === "command" || suffix === "prompt")) {
@@ -84,7 +85,7 @@ process.exit(4)
 `)
   chmodSync(mock, 0o755)
 
-  const result = run(benchmark, ["--output", output, "change the fixture"], {
+  const result = run(benchmark, ["--concurrent", "--output", output, "change the fixture"], {
     cwd: repository,
     env: { ...process.env, PATH: `${bin}:${process.env.PATH}`, MOCK_STATE: stateFile },
   })

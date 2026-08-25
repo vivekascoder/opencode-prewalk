@@ -16,6 +16,7 @@ Options:
   --output DIR       Report directory (default: .opencode-prewalk/benchmarks/<timestamp>)
   --revision REV     Git revision used for both worktrees (default: HEAD)
   --server URL       Connect to an existing OpenCode server
+  --concurrent       Start the normal and Prewalk runs at the same time
   --keep-worktrees   Keep both temporary worktrees for inspection
   -h, --help         Show this help
 
@@ -34,6 +35,7 @@ output_arg=""
 revision="HEAD"
 server_url="${OPENCODE_SERVER_URL:-}"
 keep_worktrees=false
+concurrent=false
 task_parts=()
 
 while [ "$#" -gt 0 ]; do
@@ -55,6 +57,10 @@ while [ "$#" -gt 0 ]; do
       ;;
     --keep-worktrees)
       keep_worktrees=true
+      shift
+      ;;
+    --concurrent)
+      concurrent=true
       shift
       ;;
     -h|--help)
@@ -219,8 +225,23 @@ run_case() {
   write_changes "$worktree" "$run_directory"
 }
 
-run_case normal "$normal_worktree"
-run_case prewalk "$prewalk_worktree"
+if [ "$concurrent" = true ]; then
+  note "Starting both benchmark runs concurrently"
+  run_case normal "$normal_worktree" &
+  normal_pid=$!
+  run_case prewalk "$prewalk_worktree" &
+  prewalk_pid=$!
+
+  normal_status=0
+  prewalk_status=0
+  wait "$normal_pid" || normal_status=$?
+  wait "$prewalk_pid" || prewalk_status=$?
+  [ "$normal_status" -eq 0 ] || fail "Normal benchmark run failed with status $normal_status"
+  [ "$prewalk_status" -eq 0 ] || fail "Prewalk benchmark run failed with status $prewalk_status"
+else
+  run_case normal "$normal_worktree"
+  run_case prewalk "$prewalk_worktree"
+fi
 
 BENCH_OUTPUT="$output_directory" BENCH_TASK="$task" BENCH_COMMIT="$commit" node <<'NODE'
 const fs = require("node:fs")
