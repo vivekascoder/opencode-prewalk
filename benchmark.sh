@@ -158,6 +158,28 @@ write_changes() {
   done < <(git -C "$worktree" ls-files --others --exclude-standard -z)
 }
 
+wait_for_session() {
+  local session_id="$1"
+  local mode="$2"
+  local active_response
+
+  while ! api --data '{}' POST "/api/session/$session_id/wait" >/dev/null; do
+    active_response="$(api GET /api/session/active 2>/dev/null || true)"
+    if ACTIVE_SESSION_ID="$session_id" ACTIVE_RESPONSE="$active_response" node -e '
+      try {
+        const response = JSON.parse(process.env.ACTIVE_RESPONSE || "{}")
+        process.exit(response?.data?.[process.env.ACTIVE_SESSION_ID] ? 0 : 1)
+      } catch { process.exit(1) }
+    '; then
+      note "$mode wait connection ended while the session is active; reconnecting"
+      sleep 2
+    else
+      note "$mode wait connection ended after the session stopped; capturing its result"
+      return
+    fi
+  done
+}
+
 run_case() {
   local mode="$1"
   local worktree="$2"
@@ -209,7 +231,7 @@ run_case() {
     api --data "$request_payload" POST "/api/session/$session_id/prompt" >/dev/null
   fi
 
-  api --data '{}' POST "/api/session/$session_id/wait" >/dev/null
+  wait_for_session "$session_id" "$mode"
   end_seconds="$(date +%s)"
   api GET "/api/session/$session_id" > "$run_directory/session.json"
   api GET "/api/session/$session_id/context" > "$run_directory/context.json"

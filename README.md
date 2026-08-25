@@ -2,6 +2,10 @@
 
 Prewalk for OpenCode 2: let a frontier model explore, plan, create a todo list, and make the first implementation edit, then continue the **same session** with a faster model.
 
+![A marching crowd chanting Prewalk](./assets/prewalk.png)
+
+**Plan with Sol. Finish with Luna. Keep the full trajectory.** Prewalk gives the difficult exploration and first edit to the strongest model, then hands the same grounded session to a faster executor.
+
 The initial defaults are:
 
 ```text
@@ -10,15 +14,6 @@ planner variant:  high
 executor:         openai/gpt-5.6-luna
 executor variant: medium
 ```
-
-## How it works
-
-1. `/prewalk <task>` switches the current session to GPT-5.6 Sol.
-2. A hidden context instruction asks Sol to explore deeply, create a compact todo list, and begin the implementation.
-3. Sol records the plan through the plugin's `prewalk_todo` tool. The plugin then waits for a successful edit/write tool. Shell calls, the todo call itself, and failed edits do not trigger the handoff.
-4. The current session switches to GPT-5.6 Luna. The planning instruction is no longer inserted, while a one-shot executor nudge tells Luna to finish the existing todo list and validation.
-
-This transfers the grounded trajectory—not a prose summary or a fresh thread—to the executor.
 
 ## Quick install
 
@@ -51,6 +46,15 @@ Installer paths can be overridden:
 export OPENCODE_PREWALK_DIR="$HOME/.local/share/opencode-prewalk"
 export OPENCODE_PREWALK_PLUGIN_FILE="$HOME/.config/opencode/plugins/opencode-prewalk.ts"
 ```
+
+## How it works
+
+1. `/prewalk <task>` switches the current session to GPT-5.6 Sol.
+2. A hidden context instruction asks Sol to explore deeply, create a compact todo list, and begin the implementation.
+3. Sol records the plan through the plugin's `prewalk_todo` tool. The plugin then waits for a successful edit/write tool. Shell calls, the todo call itself, and failed edits do not trigger the handoff.
+4. The current session switches to GPT-5.6 Luna. The planning instruction is no longer inserted, while a one-shot executor nudge tells Luna to finish the existing todo list and validation.
+
+This transfers the grounded trajectory—not a prose summary or a fresh thread—to the executor.
 
 ## Manual install
 
