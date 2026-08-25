@@ -191,7 +191,7 @@ run_case() {
   else
     request_payload="$(BENCH_TASK="$task" node -e '
       process.stdout.write(JSON.stringify({
-        text: process.env.BENCH_TASK,
+        text: `This is the normal, no-Prewalk baseline run. Do not load, invoke, or follow any skill or plugin named prewalk. Complete the following task directly with the current model.\n\n${process.env.BENCH_TASK}`,
         files: [], agents: [], skills: [], delivery: "steer",
       }))
     ')"
